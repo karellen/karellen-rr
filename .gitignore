@@ -1,0 +1,11 @@
+rr.build.*/
+rr.install.*/
+capnp.build.*/
+capnp.install.*/
+wheels/
+__pycache__/
+*.egg-info/
+dist/
+build/
+.claude-tmp/
+venv-*/

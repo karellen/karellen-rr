@@ -1,0 +1,75 @@
+name: karellen-rr-update
+on:
+  schedule:
+    - cron: "0 */6 * * *"
+  workflow_dispatch:
+jobs:
+  check-update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    continue-on-error: false
+    env:
+      GH_TOKEN: ${{ secrets.PAT_TOKEN }}
+    steps:
+      - name: Ensure only single auto-update branch
+        shell: bash
+        run: |
+          set -eEux
+          set -o pipefail
+          shopt -s extglob
+
+          BRANCHES=$(git ls-remote $GITHUB_SERVER_URL/$GITHUB_REPOSITORY 'auto-update-*' 2>/dev/null | { grep -o 'refs/heads/auto-update-.*' || true; } | sed 's/refs\/heads\///' | jq -Rn '{branches: [inputs]}')
+          PRS=$(gh -R $GITHUB_REPOSITORY pr list --state closed --limit 100000 --state closed --json number,headRefName --jq '{prs: .}')
+          CLOSED_PRS_WITH_BRANCHES=$(jq -s 'add' <(echo "$BRANCHES") <(echo "$PRS") | jq -c '[.branches[] as $branches | .prs[] | select(.headRefName | IN($branches))]')
+
+          echo "$CLOSED_PRS_WITH_BRANCHES" | jq -r '.[] | .headRefName' | sort -u | while read -r branch_name; do
+              gh api -X DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$branch_name"
+              echo "Deleted branch $branch_name"
+          done
+
+          CURRENT_BRANCH="$(git ls-remote $GITHUB_SERVER_URL/$GITHUB_REPOSITORY 'auto-update-*' 2>/dev/null | { grep -o 'refs/heads/auto-update-.*' || true; } | sed 's/refs\/heads\///')"
+          if [ -n "$CURRENT_BRANCH" ] ; then
+            echo "# Pending auto-update branch $CURRENT_BRANCH already exists!" >> $GITHUB_STEP_SUMMARY
+            gh run cancel -R $GITHUB_SERVER_URL/$GITHUB_REPOSITORY ${{ github.run_id }}
+            sleep 10
+          fi
+
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+          ref: master
+
+      - name: Check Updates
+        shell: bash
+        run: |
+          source ./check-updates.sh
+
+          if [ -z "$MODULES_CHANGED" ]; then
+              echo "# No submodules changed detected - exiting!" >> $GITHUB_STEP_SUMMARY
+              exit 0
+          fi
+
+          git submodule sync --recursive
+          git submodule update --init --force --recursive
+          CURRENT_VERSION="$(python3 version_extractor.py)"
+
+          git submodule update --init --remote --recursive
+          NEW_VERSION="$(python3 version_extractor.py)"
+
+          if [ "$CURRENT_VERSION" != "$NEW_VERSION" ]; then
+              echo "# Current version: $CURRENT_VERSION" >> $GITHUB_STEP_SUMMARY
+              echo "# New version: $NEW_VERSION" >> $GITHUB_STEP_SUMMARY
+
+              BRANCH_NAME="auto-update-${CURRENT_VERSION}-${NEW_VERSION}"
+              TITLE="Automatic update from $CURRENT_VERSION to $NEW_VERSION"
+
+              git config --global user.email "supervisor@karellen.co"
+              git config --global user.name "Karellen Supervisor"
+
+              git checkout -b "$BRANCH_NAME"
+              git commit -a -m "$TITLE" --allow-empty
+              git push --set-upstream origin "$BRANCH_NAME"
+
+              PR_URL="$(gh pr create --head "$BRANCH_NAME" --base master --fill --no-maintainer-edit)"
+              gh pr merge --merge --auto -d "$PR_URL"
+          fi
