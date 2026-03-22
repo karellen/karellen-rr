@@ -1,0 +1,135 @@
+name: Build
+on:
+  pull_request:
+    branches:
+      - master
+  push:
+    branches:
+      - master
+jobs:
+  build:
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 120
+    continue-on-error: false
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-latest
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Install Host Dependencies
+        shell: bash
+        run: |
+          set -eEux
+          set -o pipefail
+
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          PATH=$HOME/.local/bin:$PATH
+          export PATH
+          pip install --no-input --user --break-system-packages -r requirements.txt
+          pip install --no-input --user --break-system-packages twine
+
+      - name: Build
+        shell: bash
+        run: |
+          set -eEux
+          set -o pipefail
+
+          ./docker-build.py -a ${{ matrix.arch }}
+
+      - name: Package
+        shell: bash
+        run: |
+          set -eEux
+          set -o pipefail
+
+          ./packager.py -a ${{ matrix.arch }}
+          twine check --strict wheels/*.whl
+          ls -la wheels/*
+
+      - name: Test
+        shell: bash
+        run: |
+          set -eEux
+          set -o pipefail
+
+          ./test-build.sh
+
+      - name: Upload Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.arch }}
+          path: wheels/*.whl
+
+  release:
+    needs: build
+    if: github.ref_name == 'master'
+    runs-on: ubuntu-latest
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Download Wheels
+        uses: actions/download-artifact@v4
+        with:
+          path: wheels
+          merge-multiple: true
+
+      - name: Release
+        shell: bash
+        run: |
+          set -eEux
+          set -o pipefail
+
+          VERSION=$(python3 version_extractor.py)
+          gh release create "v${VERSION}" --generate-notes wheels/*.whl
+
+  upload-pypi:
+    needs: release
+    if: github.ref_name == 'master'
+    runs-on: ubuntu-latest
+    env:
+      TWINE_USERNAME: __token__
+      TWINE_PASSWORD: ${{ secrets.PYPI_TOKEN }}
+    steps:
+      - name: Install Twine
+        shell: bash
+        run: |
+          set -eEux
+          set -o pipefail
+
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+          PATH=$HOME/.local/bin:$PATH
+          export PATH
+          pip install --no-input --user --break-system-packages twine
+
+      - name: Download Wheels
+        uses: actions/download-artifact@v4
+        with:
+          path: wheels
+          merge-multiple: true
+
+      - name: Upload to PyPI
+        shell: bash
+        run: |
+          set -eEux
+          set -o pipefail
+
+          for i in 1 2 3; do
+              twine upload --non-interactive --skip-existing wheels/*.whl && break
+              [ "$i" -lt 3 ] && sleep 5
+          done

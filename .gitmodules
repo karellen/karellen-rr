@@ -1,0 +1,8 @@
+[submodule "rr"]
+	path = rr
+	url = https://github.com/rr-debugger/rr
+	branch = master
+[submodule "capnproto"]
+	path = capnproto
+	url = https://github.com/capnproto/capnproto
+	branch = release-1.4.0
