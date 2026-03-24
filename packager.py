@@ -144,17 +144,17 @@ def package_arch(arch, source_dir, wheel_dir, version, long_description):
 
         # Generate build files
         plat_name_line = f"plat_name = {plat_name}"
-        (staging_dir / "pyproject.toml").write_text(PYPROJECT_TOML)
+        (staging_dir / "pyproject.toml").write_text(PYPROJECT_TOML, encoding="utf-8")
         (staging_dir / "setup.py").write_text(SETUP_PY_TEMPLATE % dict(
             name="karellen-rr",
             version=version,
             description="rr reverse debugger",
             long_description=long_description,
             keywords=["rr", "debugger", "reverse-debugging", "record-replay"],
-        ))
+        ), encoding="utf-8")
         (staging_dir / "setup.cfg").write_text(SETUP_CFG_TEMPLATE % dict(
             plat_name_line=plat_name_line,
-        ))
+        ), encoding="utf-8")
 
         # Build wheel
         check_call([sys.executable, "-m", "build", "--wheel", "--no-isolation"],
