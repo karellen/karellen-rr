@@ -157,7 +157,7 @@ def package_arch(arch, source_dir, wheel_dir, version, long_description):
         ), encoding="utf-8")
 
         # Build wheel
-        check_call([sys.executable, "-m", "build", "--wheel", "--no-isolation"],
+        check_call([sys.executable, "-m", "build", "--wheel", "--no-isolation", "--skip-dependency-check"],
                     cwd=staging_dir)
 
         # Move wheel to output
