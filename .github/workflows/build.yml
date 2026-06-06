@@ -7,7 +7,7 @@ on:
     branches:
       - master
 jobs:
-  build:
+  build-platform:
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     continue-on-error: false
@@ -71,8 +71,19 @@ jobs:
           name: wheels-${{ matrix.arch }}
           path: wheels/*.whl
 
+  build:
+    needs: build-platform
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check build results
+        run: |
+          if [[ "${{ needs.build-platform.result }}" != "success" ]]; then
+            exit 1
+          fi
+
   release:
-    needs: build
+    needs: build-platform
     if: github.ref_name == 'master'
     runs-on: ubuntu-latest
     env:
